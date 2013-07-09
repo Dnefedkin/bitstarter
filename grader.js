@@ -23,9 +23,13 @@ References:
 
 var fs = require('fs');
 var program = require('commander');
+var rest = require('restler');
+var crypto = require('crypto');
 var cheerio = require('cheerio');
+
 var HTMLFILE_DEFAULT = "index.html";
 var CHECKSFILE_DEFAULT = "checks.json";
+var FAKE_URL = "FAKE_URL";
 
 var assertFileExists = function(infile) {
     var instr = infile.toString();
@@ -34,7 +38,12 @@ var assertFileExists = function(infile) {
         process.exit(1); // http://nodejs.org/api/process.html#process_process_exit_code
     }
     return instr;
-};
+}
+
+var assertURLExists = function(urlToCheck) {
+    // do not check URL for validity for now
+    return urlToCheck;
+}
 
 var cheerioHtmlFile = function(htmlfile) {
     return cheerio.load(fs.readFileSync(htmlfile));
@@ -55,6 +64,31 @@ var checkHtmlFile = function(htmlfile, checksfile) {
     return out;
 };
 
+var generateTempFileName = function() {
+  var filename = '/tmp/foo'+crypto.randomBytes(4).readUInt32LE(0)+'bar';
+  return filename;
+}
+
+var processFile = function(htmlfile, checksFile) {
+ var checkJson = checkHtmlFile(htmlfile, checksFile);
+ var outJson = JSON.stringify(checkJson, null, 4);
+ console.log(outJson);
+}
+
+var buildfn = function(checksFile) {
+  var processURL = function(result, response) {
+   var tempFileName = generateTempFileName();
+   if (result instanceof Error) {
+     console.error('Error: %s', result.message);
+     process.exit(1);
+    }  else {
+      fs.writeFileSync(tempFileName, result);
+      processFile(tempFileName, checksFile);
+    }
+  };
+  return processURL;
+}; 
+
 var clone = function(fn) {
     // Workaround for commander.js issue.
     // http://stackoverflow.com/a/6772648
@@ -65,10 +99,15 @@ if(require.main == module) {
     program
         .option('-c, --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
         .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
+        .option('-u, --url <url>', 'URL of the html file', clone(assertURLExists), FAKE_URL)    
         .parse(process.argv);
-    var checkJson = checkHtmlFile(program.file, program.checks);
-    var outJson = JSON.stringify(checkJson, null, 4);
-    console.log(outJson);
+    if (program.url == FAKE_URL) {
+      // file is provided
+      processFile(program.file, program.checks);
+    }
+    else  {
+      rest.get(program.url).on('complete', buildfn(program.checks));
+    }
 } else {
     exports.checkHtmlFile = checkHtmlFile;
 }
